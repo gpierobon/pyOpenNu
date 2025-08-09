@@ -34,7 +34,7 @@ def compute_gav_matrix(A, Z):
 
 
 
-def compute_gammas(w_val, m_vals, A, Z):
+def compute_gammas(w_val, m_vals, A, Z, majorana=False):
     eV_2_Hz = 1/6.58e-16
     mp.dps = 70  # High precision
 
@@ -120,6 +120,44 @@ def compute_ratio(m, w, A=129, Z=54):
     mm = get_masses(mnu)
     gp_eV, gm_eV, gp, gm = compute_gammas(w0, [mm[0], mm[1], mm[2]], A, Z)
     return gp/gm, gm
+
+
+def compute_ratio_v2(m, w, A=129, Z=54, mode="sum"):
+    mnu = mp.mpf(m)
+    w0 = mp.mpf(w)
+
+    dm21 = mp.mpf("7.4e-5")
+    dm31 = mp.mpf("2.5e-3")
+
+    def get_masses_from_sum(m_sum):
+        min_sum = sqrt(dm21) + sqrt(dm31)
+        if m_sum < min_sum:
+            raise ValueError(f"Mass sum {m_sum} eV is below physical minimum (~0.059 eV).")
+        def mass_sum_difference(m1_guess):
+            m1 = mp.mpf(m1_guess)
+            m2 = sqrt(m1**2 + dm21)
+            m3 = sqrt(m1**2 + dm31)
+            return m1 + m2 + m3 - m_sum
+        m1 = findroot(mass_sum_difference, 0.001)
+        m2 = sqrt(m1**2 + dm21)
+        m3 = sqrt(m1**2 + dm31)
+        return [m1, m2, m3]
+
+    def get_masses_from_m1(m1):
+        m1 = mp.mpf(m1)
+        m2 = sqrt(m1**2 + dm21)
+        m3 = sqrt(m1**2 + dm31)
+        return [m1, m2, m3]
+
+    if mode == "sum":
+        mm = get_masses_from_sum(mnu)
+    elif mode == "m1":
+        mm = get_masses_from_m1(mnu)
+    else:
+        raise ValueError("mode must be 'sum' or 'm1'")
+
+    gp_eV, gm_eV, gp, gm = compute_gammas(w0, mm, A, Z)
+    return gp / gm, gm
 
 
 
