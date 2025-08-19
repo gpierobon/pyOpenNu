@@ -5,7 +5,6 @@ from scipy.integrate import dblquad
 from mpmath import mp, quad, sqrt, exp, inf, fabs, findroot
 from functools import lru_cache
 
-#import gammas as ga
 
 def solve(Na, gp_ratio=0.95, gd_ratio=0, ti=1e-4, tf=1e4, ntimes=200, p_init=1):
     '''
@@ -249,7 +248,9 @@ def find_delta(
         Z=54,
         gy=11.78e6,
         mode='m1',
-        opt=True
+        opt=True,
+        sigma_spn=False,
+        verb=False
     ):
     '''
     Chi-squared analysis on normalized ⟨J_z⟩, starting from
@@ -260,7 +261,10 @@ def find_delta(
     w0     = 2 * np.pi * gy * B / eVHz      # eV
     knu    = 1 / 0.037                      # cm^-1
     N      = ns * 4 * np.pi / 3 * R**3      # number of spins
-    fsup   = 4*(knu * R)**2                   # coherent suppression factor
+    fsup   = max(1, 2*(knu * R)**2)         # coherent suppression factor
+    w0_i = w0
+
+
 
     # --- Time grid ---
     tf       = T2
@@ -271,15 +275,24 @@ def find_delta(
     # --- Gamma ratios ---
     gratio, gm, mm = compute_ratio(mnu, w0, A=A, Z=Z, mode=mode)
 
+    if verb:
+        print("At B=%.2f, I get w=%.3e"%(B, w0))
+        print("g+/g- = %.7f"%gratio)
+
+
     # --- Optimal splitting
     if opt:
         knu = 5.3e-4
         m1 = mm[0]
         w0_opt = knu/m1/R/8065
         if w0_opt < w0:
-            print("Warning: splitting too large, adjusting to optimal value!")
+            if verb:
+                print("Warning: splitting too large, adjusting to optimal value!")
         w0 = w0_opt
         gratio, gm, mm = compute_ratio(mnu, w0, A=A, Z=Z, mode=mode)
+        if verb:
+            print("Passed w=%.3e, optimal w=%.3e used"%(w0_i, w0_opt))
+            print("g+/g- = %.7f"%gratio)
 
     # -- Data generation -------
     np.random.seed(seed)
@@ -317,8 +330,10 @@ def find_delta(
 
     for delta in delta_list:
         _, jz_pred, sz_pred = get_model_jz(delta)
-        #sigma_jz = np.sqrt((N/4) / Nshots + squid_noise_ratio * (N / 4)) / (N / 2)
-        sigma_jz = np.sqrt(sz_pred**2/Nshots + squid_noise_ratio/Nshots)/np.sqrt(N)*2
+        if sigma_spn:
+            sigma_jz = np.sqrt((N/4) / Nshots + squid_noise_ratio * (N / 4)) / (N / 2)
+        else:
+            sigma_jz = np.sqrt(sz_pred**2/Nshots + squid_noise_ratio/Nshots)/np.sqrt(N)*2
         chi2 = np.sum(((Jz_mean_exp - jz_pred) / sigma_jz) ** 2)
         chi2l.append(chi2)
 
