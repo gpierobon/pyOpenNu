@@ -247,6 +247,7 @@ def find_delta(
         A=129,
         Z=54,
         gy=11.78e6,
+        Bmax=12,
         mode='m1',
         opt=True,
         sigma_spn=False,
@@ -262,9 +263,7 @@ def find_delta(
     knu    = 1 / 0.037                      # cm^-1
     N      = ns * 4 * np.pi / 3 * R**3      # number of spins
     fsup   = max(1, 2*(knu * R)**2)         # coherent suppression factor
-    w0_i = w0
-
-
+    w0_i   = w0
 
     # --- Time grid ---
     tf       = T2
@@ -280,7 +279,7 @@ def find_delta(
         print("g+/g- = %.7f"%gratio)
 
 
-    # --- Optimal splitting
+    # --- Optimal splitting and B-field limitations
     if opt:
         knu = 5.3e-4
         m1 = mm[0]
@@ -289,9 +288,16 @@ def find_delta(
             if verb:
                 print("Warning: splitting too large, adjusting to optimal value!")
         w0 = w0_opt
+        B_opt = w0_opt * eVHz / (2*np.pi * gy)
+        if B_opt > Bmax:
+            if verb:
+                print("Optimal splitting needs too large B field, adjusting to Bmax!")
+            B = Bmax
+            w0 = 2 * np.pi * gy * B / eVHz
+
         gratio, gm, mm = compute_ratio(mnu, w0, A=A, Z=Z, mode=mode)
         if verb:
-            print("Passed w=%.3e, optimal w=%.3e used"%(w0_i, w0_opt))
+            print("Passed w=%.3e, optimal w=%.3e,  used w=%.3e"%(w0_i, w0_opt, w0))
             print("g+/g- = %.7f"%gratio)
 
     # -- Data generation -------
