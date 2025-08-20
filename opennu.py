@@ -262,7 +262,7 @@ def find_delta(
     w0     = 2 * np.pi * gy * B / eVHz      # eV
     knu    = 1 / 0.037                      # cm^-1
     N      = ns * 4 * np.pi / 3 * R**3      # number of spins
-    fsup   = max(1, 2*(knu * R)**2)         # coherent suppression factor
+    fsup   = max(1, 4*(knu * R)**2)         # coherent suppression factor
     w0_i   = w0
 
     # --- Time grid ---
@@ -312,8 +312,8 @@ def find_delta(
     @lru_cache(maxsize=64)
     def get_model_jz(delta):
         Ncode = int(ncode)
-        tmin_code = min(t_exp) * N * gm * (1-gratio) * delta / fsup
-        tmax_code = max(t_exp) * N * gm * (1-gratio) * delta / fsup
+        tmin_code = min(t_exp) * N * gm/fsup * (1-gratio) * delta
+        tmax_code = max(t_exp) * N * gm/fsup * (1-gratio) * delta
         t, jz, sz = solve(
             Ncode,
             gp_ratio=gratio,
@@ -339,7 +339,7 @@ def find_delta(
         if sigma_spn:
             sigma_jz = np.sqrt((N/4) / Nshots + squid_noise_ratio * (N / 4)) / (N / 2)
         else:
-            sigma_jz = np.sqrt(sz_pred**2/Nshots + squid_noise_ratio/Nshots)/np.sqrt(N)*2
+            sigma_jz = np.sqrt(sz_pred**2/Nshots + squid_noise_ratio/Nshots) / np.sqrt(N/4)
         chi2 = np.sum(((Jz_mean_exp - jz_pred) / sigma_jz) ** 2)
         chi2l.append(chi2)
 
@@ -354,7 +354,7 @@ def find_delta(
     if delta_crit is None:
        print("No delta found within scan range for J_z")
 
-    return delta_crit, chi2l, chi2-chi2_min
+    return delta_crit, chi2l, chi2-chi2_min, w0
 
 
 def find_deltax(
