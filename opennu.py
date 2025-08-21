@@ -383,7 +383,6 @@ def find_deltax(
         sampf=14.3e3,
         B=0.1,
         T2=1,
-        ns=1.35e22,
         Nshots=100,
         seed=42,
         d_init=1e5,
@@ -392,21 +391,42 @@ def find_deltax(
         chi2_crit=2.7,
         squid_noise_ratio=0.0,
         ncode=1e9,
-        A=129,
-        Z=54,
-        gy=11.78e6,
-        mode='m1'
+        Bmax=12,
+        mode='m1',
+        sample='Xe',
+        squeeze=1,
+        opt=True,
+        verb=False
     ):
     '''
     Chi-squared analysis on normalized ⟨J^2_x⟩, starting from
     equatorial product state assuming T1 >> T2.
     Returns upper limit on delta at specified confidence level.
     '''
+    if sample == 'Xe':
+        ns = 1.35e22
+        A  = 129
+        Z  = 54
+        gy = 11.78e6
+    elif sample == 'He':
+        ns = 3e22
+        A  = 3
+        Z  = 2
+        gy = 32.43e6
+    elif sample == 'H':
+        ns = 3e22
+        A  = 1
+        Z  = 1
+        gy = 42.58e6
+    else:
+        raise ValueError("Sample not valid, choose 'Xe', 'He' or 'H'!")
+
     eVHz   = 1 / 6.58e-16                   # eV/Hz conversion
     w0     = 2 * np.pi * gy * B / eVHz      # eV
     knu    = 1 / 0.037                      # cm^-1
     N      = ns * 4 * np.pi / 3 * R**3      # number of spins
-    fsup   = 4*(knu * R)**2                   # coherent suppression factor
+    fsup   = max(1, 4*(knu * R)**2)         # coherent suppression factor
+    w0_i   = w0
 
     # --- Time grid ---
     tf       = T2
@@ -415,19 +435,36 @@ def find_deltax(
     t_exp    = np.geomspace(ti, tf, n_times)
 
     # --- Gamma ratios ---
-    gratio, gm = compute_ratio(mnu, w0, A=A, Z=Z, mode=mode)
+    gratio, gm, mm = compute_ratio(mnu, w0, A=A, Z=Z, mode=mode)
 
-    # --- Optimal splitting
+    if verb:
+        print("At B=%.2f, I get w=%.3e"%(B, w0))
+        print("g+/g- = %.7f"%gratio)
+
+
+    # --- Optimal splitting and B-field limitations
     if opt:
         knu = 5.3e-4
         m1 = mm[0]
         w0_opt = knu/m1/R/8065
         if w0_opt < w0:
-            print("Warning: splitting too large, adjusting to optimal value!")
+            if verb:
+                print("Warning: splitting too large, adjusting to optimal value!")
         w0 = w0_opt
+        B_opt = w0_opt * eVHz / (2*np.pi * gy)
+        if B_opt > Bmax:
+            if verb:
+                print("Optimal splitting needs too large B field, adjusting to Bmax!")
+            B = Bmax
+            w0 = 2 * np.pi * gy * B / eVHz
+
         gratio, gm, mm = compute_ratio(mnu, w0, A=A, Z=Z, mode=mode)
+        if verb:
+            print("Passed w=%.3e, optimal w=%.3e,  used w=%.3e"%(w0_i, w0_opt, w0))
+            print("g+/g- = %.7f"%gratio)
 
 
+    # -- Data generation -------
     np.random.seed(seed)
     jx_true_mean = 0.0
     true_var = N/4*(1+squid_noise_ratio)
@@ -440,7 +477,7 @@ def find_deltax(
     sigma = np.sqrt(sigma2) * np.ones(n_times)
 
     jx2_exp = Jx2_exp / (N / 4)
-    sigma = sigma / (N / 4)
+    sigma = sigma / (N / 4) / squeeze
 
     # --- Memoized model prediction for normalized ⟨J_z⟩ ---
     @lru_cache(maxsize=64)
@@ -467,7 +504,7 @@ def find_deltax(
     chi2l = []
 
     for delta in delta_list:
-        jx2_pred = get_model_jx2(delta)
+        _, jx2_pred = get_model_jx2(delta)
         chi2 = np.sum(((jx2_exp - jx2_pred) / sigma) ** 2)
         chi2l.append(chi2)
 
@@ -482,7 +519,7 @@ def find_deltax(
     if delta_crit is None:
        print("No delta found within scan range for J^2_x")
 
-    return delta_crit, chi2l, chi2-chi2_min
+    return delta_crit, chi2l, chi2-chi2_min, w0
 
 
 
