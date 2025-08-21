@@ -190,7 +190,7 @@ def compute_gammas(w_val, m_vals, A, Z, majorana=False):
     return float(gammap), float(gammam), float(gammap*eV_2_Hz), float(gammam*eV_2_Hz)
 
 
-def compute_ratio(m, w, A=129, Z=54, mode="sum"):
+def compute_ratio(m, w, A=129, Z=54, mode="sum", majorana=False):
     mnu = mp.mpf(m)
     w0 = mp.mpf(w)
 
@@ -224,7 +224,7 @@ def compute_ratio(m, w, A=129, Z=54, mode="sum"):
     else:
         raise ValueError("mode must be 'sum' or 'm1'")
 
-    gp_eV, gm_eV, gp, gm = compute_gammas(w0, mm, A, Z)
+    gp_eV, gm_eV, gp, gm = compute_gammas(w0, mm, A, Z, majorana=majorana)
     return gp / gm, gm, mm
 
 
@@ -235,7 +235,6 @@ def find_delta(
         sampf=14.3e3,
         B=0.1,
         T2=1,
-        ns=1.35e22,
         Nshots=100,
         seed=42,
         d_init=1e5,
@@ -244,11 +243,10 @@ def find_delta(
         chi2_crit=2.7,
         squid_noise_ratio=0.0,
         ncode=1e9,
-        A=129,
-        Z=54,
-        gy=11.78e6,
         Bmax=12,
         mode='m1',
+        sample='Xe',
+        squeeze=1,
         opt=True,
         sigma_spn=False,
         verb=False
@@ -258,6 +256,25 @@ def find_delta(
     equatorial product state assuming T1 >> T2.
     Returns upper limit on delta at specified confidence level.
     '''
+
+    if sample == 'Xe':
+        ns = 1.35e22
+        A  = 129
+        Z  = 54
+        gy = 11.78e6
+    elif sample == 'He':
+        ns = 3e22
+        A  = 3
+        Z  = 2
+        gy = 32.43e6
+    elif sample == 'H':
+        ns = 3e22
+        A  = 1
+        Z  = 1
+        gy = 42.58e6
+    else:
+        raise ValueError("Sample not valid, choose 'Xe', 'He' or 'H'!")
+
     eVHz   = 1 / 6.58e-16                   # eV/Hz conversion
     w0     = 2 * np.pi * gy * B / eVHz      # eV
     knu    = 1 / 0.037                      # cm^-1
@@ -312,8 +329,8 @@ def find_delta(
     @lru_cache(maxsize=64)
     def get_model_jz(delta):
         Ncode = int(ncode)
-        tmin_code = min(t_exp) * N * gm/fsup * (1-gratio) * delta
-        tmax_code = max(t_exp) * N * gm/fsup * (1-gratio) * delta
+        tmin_code = min(t_exp) * N * gm/fsup * delta
+        tmax_code = max(t_exp) * N * gm/fsup * delta
         t, jz, sz = solve(
             Ncode,
             gp_ratio=gratio,
@@ -337,9 +354,11 @@ def find_delta(
     for delta in delta_list:
         _, jz_pred, sz_pred = get_model_jz(delta)
         if sigma_spn:
-            sigma_jz = np.sqrt((N/4) / Nshots + squid_noise_ratio * (N / 4)) / (N / 2)
+            sigma_jz = np.sqrt(1/Nshots + squid_noise_ratio/Nshots) / np.sqrt(N/4)
         else:
             sigma_jz = np.sqrt(sz_pred**2/Nshots + squid_noise_ratio/Nshots) / np.sqrt(N/4)
+
+        sigma_jz = sigma_jz/squeeze
         chi2 = np.sum(((Jz_mean_exp - jz_pred) / sigma_jz) ** 2)
         chi2l.append(chi2)
 
