@@ -277,9 +277,9 @@ def find_delta(
 
     eVHz   = 1 / 6.58e-16                   # eV/Hz conversion
     w0     = 2 * np.pi * gy * B / eVHz      # eV
-    knu    = 1 / 0.037                      # cm^-1
+    pnu    = 5.3e-4*2*np.pi*8065            # cm^-1
     N      = ns * 4 * np.pi / 3 * R**3      # number of spins
-    fsup   = max(1, 4*(knu * R)**2)         # coherent suppression factor
+    fsup   = max(1, 4*(pnu * R)**2)         # coherent suppression factor
     w0_i   = w0
 
     # --- Time grid ---
@@ -300,7 +300,7 @@ def find_delta(
     if opt:
         knu = 5.3e-4
         m1 = mm[0]
-        w0_opt = knu/m1/R/8065
+        w0_opt = knu/m1/R/(8065*2*np.pi)
         if w0_opt < w0:
             if verb:
                 print("Warning: splitting too large, adjusting to optimal value!")
@@ -316,6 +316,9 @@ def find_delta(
         if verb:
             print("Passed w=%.3e, optimal w=%.3e,  used w=%.3e"%(w0_i, w0_opt, w0))
             print("g+/g- = %.7f"%gratio)
+
+    if verb:
+        print("Max rate is Gamma_-= %.3e Hz"%(gm*N**2/fsup))
 
     # -- Data generation -------
     np.random.seed(seed)
@@ -423,9 +426,9 @@ def find_deltax(
 
     eVHz   = 1 / 6.58e-16                   # eV/Hz conversion
     w0     = 2 * np.pi * gy * B / eVHz      # eV
-    knu    = 1 / 0.037                      # cm^-1
+    pnu    = 5.3e-4*2*np.pi*8065            # cm^-1
     N      = ns * 4 * np.pi / 3 * R**3      # number of spins
-    fsup   = max(1, 4*(knu * R)**2)         # coherent suppression factor
+    fsup   = max(1, 4*(pnu * R)**2)         # coherent suppression factor
     w0_i   = w0
 
     # --- Time grid ---
@@ -433,6 +436,7 @@ def find_deltax(
     ti       = 1 / sampf
     n_times  = int((tf - ti) * sampf)
     t_exp    = np.geomspace(ti, tf, n_times)
+
 
     # --- Gamma ratios ---
     gratio, gm, mm = compute_ratio(mnu, w0, A=A, Z=Z, mode=mode)
@@ -446,7 +450,7 @@ def find_deltax(
     if opt:
         knu = 5.3e-4
         m1 = mm[0]
-        w0_opt = knu/m1/R/8065
+        w0_opt = knu/m1/R/(8065*2*np.pi)
         if w0_opt < w0:
             if verb:
                 print("Warning: splitting too large, adjusting to optimal value!")
@@ -463,6 +467,8 @@ def find_deltax(
             print("Passed w=%.3e, optimal w=%.3e,  used w=%.3e"%(w0_i, w0_opt, w0))
             print("g+/g- = %.7f"%gratio)
 
+    if verb:
+        print("Max rate is Gamma_-= %.3e Hz"%(gm*N**2/fsup))
 
     # -- Data generation -------
     np.random.seed(seed)
