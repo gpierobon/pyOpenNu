@@ -1,6 +1,9 @@
 plots/
 data/
 
+script.py
+
 notebooks/Squeezing1.ipynb
 .ipynb_checkpoints/
 __pycache__/
+.DS_Store
