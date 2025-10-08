@@ -2,11 +2,14 @@ import numpy as np
 from scipy.integrate import solve_ivp
 from scipy.interpolate import interp1d
 from scipy.integrate import dblquad
+from scipy.linalg import cho_factor, cho_solve
 from mpmath import mp, quad, sqrt, exp, inf, fabs, findroot
 from functools import lru_cache
 
 
-def solve(Na, gp_ratio=0.95, gd_ratio=0, ti=1e-4, tf=1e4, ntimes=200, p_init=1):
+
+
+def solve(Na, gp_ratio=0.95, gd_ratio=0, gl_ratio=0, ti=1e-4, tf=1e4, ntimes=200, p_init=1, tlin=False):
     '''
     '''
     gm = 1
@@ -14,23 +17,36 @@ def solve(Na, gp_ratio=0.95, gd_ratio=0, ti=1e-4, tf=1e4, ntimes=200, p_init=1):
     gm = 1*td        # gamma-
     gp = gp_ratio*td # gamma+
     gd = gd_ratio*td # gamma_phi
+    gl = gl_ratio*td # gamma- local
 
     t_span = (ti, tf)
     t_eval = np.geomspace(*t_span, ntimes)
+    if tlin:
+        t_eval = np.linspace(*t_span, ntimes)
 
     jz0 = 0
     jj0 = 0.5 * Na + 0.25 * Na**2 * p_init**2
     jjz0 = (Na / 4)
 
+    # def system(t, y):
+    #     jz, jj, jjz = y
+    #     djz_dt = -gm * (jj - jjz + jz) + gp * (jj - jjz - jz)
+    #     djj_dt = -gd * (jj - jjz - 0.5 * Na)
+    #     djjz_dt = (
+    #         gm * (jj + jz - 3 * jjz + 2 * jz * jjz - 2 * jz * jj) +
+    #         gp * (jj - jz - 3 * jjz - 2 * jz * jjz + 2 * jz * jj)
+    #     )
+    #     return [djz_dt, djj_dt, djjz_dt]
+
     def system(t, y):
         jz, jj, jjz = y
-        djz_dt = -gm * (jj - jjz + jz) + gp * (jj - jjz - jz)
-        djj_dt = -gd * (jj - jjz - 0.5 * Na)
-        djjz_dt = (
-            gm * (jj + jz - 3 * jjz + 2 * jz * jjz - 2 * jz * jj) +
-            gp * (jj - jz - 3 * jjz - 2 * jz * jjz + 2 * jz * jj)
-        )
+        djz_dt = -gm * (jj - jjz + jz) + gp * (jj - jjz - jz) - gl * (jz + 0.5 * Na) 
+        djj_dt = -gd * (jj - jjz - 0.5 * Na) - gl * (jj + (Na - 1) * jz + jjz - Na)
+        djjz_dt = gm * (jj + jz - 3 * jjz + 2 * jz * jjz - 2 * jz * jj) + \
+                  gp * (jj - jz - 3 * jjz - 2 * jz * jjz + 2 * jz * jj) - \
+                  gl * ( (Na - 1) * jz + 2 * jjz - 0.5 * Na)
         return [djz_dt, djj_dt, djjz_dt]
+
 
     # Solve the first system
     y0 = [jz0, jj0, jjz0]
@@ -101,6 +117,79 @@ def solvex(Na, gp_ratio=0.95, gd_ratio=0, ti=1e-4, tf=1e4, ntimes=200, p_init=1)
     jz2 = sol1.y[2]
     jx2 = (jpm*jmp + jpm*jmp + 2*jj - 2*jz2)/4
     return t, jx2, jz, jz2
+
+
+def solveC(Na, gp_ratio=0.95, gd_ratio=0, gl_ratio=0, ti=1e-4, tf=1e4, ntimes=101, p_init=1, tcheck=0):
+    '''
+    '''
+    gm = 1
+    td = 1/(Na*gm)
+    gm = 1*td        # gamma- collective
+    gp = gp_ratio*td # gamma+ collective
+    gd = gd_ratio*td # gamma_phi local
+    gl = gl_ratio*td # gamma- local
+    gnet = gm-gp
+    gtot = gm+gp
+
+    t_span = (ti, tf)
+    t_eval = np.geomspace(*t_span, ntimes)
+
+    def system1(t, y):
+        jz, jj, jjz = y
+        djz_dt = -gm * (jj - jjz + jz) + gp * (jj - jjz - jz) - gl * (jz + 0.5 * Na)
+        djj_dt = -gd * (jj - jjz - 0.5 * Na) - gl * (jj + (Na - 1) * jz + jjz - Na)
+        djjz_dt = gm * (jj + jz - 3 * jjz + 2 * jz * jjz - 2 * jz * jj) + \
+                  gp * (jj - jz - 3 * jjz - 2 * jz * jjz + 2 * jz * jj) - \
+                  gl * ( (Na - 1) * jz + 2 * jjz - 0.5 * Na)
+        return [djz_dt, djj_dt, djjz_dt]
+
+
+    def system_C(t, y):
+        c1, c2, c3, c4 = y
+        jz  = tcheck
+        j2z = j2z_t(t)
+        j2  = j2_t(t)
+        dc1_dt = gp * (c2 - c3 - c1) - gm * (c2 - c3 + c1) - gl * (c1 + 0.5 * Na * jz)
+        dc2_dt = -gl * (c2 + (Na - 1) * c1 + c3 - Na * jz) - gd * (c2 - c3 - 0.5 * Na)
+        dc3_dt = gp * (c2 - c1 - 3 * c3 - 2 * c3 * jz + 2 * c2 * jz) + \
+                 gm * (c2 + c1 - 3 * c3 + 2 * c3 * jz - 2 * c2 * jz) - \
+                 gl * ((Na - 1) * c1 + 2 * c3 - 0.5 * Na * jz)
+        dc4_dt = -gnet * (c2-c3) - (gtot + gl) * c4
+
+        return [dc1_dt, dc2_dt, dc3_dt, dc4_dt]
+
+    # IC system1
+    jz0 = 0
+    jj0 = 0.5 * Na + 0.25 * Na**2 * p_init**2
+    jjz0 = (Na / 4)
+
+    # Solve the first system
+    y0 = [jz0, jj0, jjz0]
+    sol1 = solve_ivp(system1, (t_eval[0], t_eval[-1]), y0, t_eval=t_eval, method='BDF',
+                             rtol=1e-10, atol=1e-12, dense_output=True)
+
+    jz_t  = interp1d(sol1.t, sol1.y[0], kind='cubic', fill_value="extrapolate")
+    j2_t  = interp1d(sol1.t, sol1.y[1], kind='cubic', fill_value="extrapolate")
+    j2z_t = interp1d(sol1.t, sol1.y[2], kind='cubic', fill_value="extrapolate")
+
+    # ICsystem2
+    c1_0 = Na / 4
+    c2_0 = 0
+    c3_0 = 0
+    c4_0 = Na / 4
+
+    # Solve the second system
+    y0_2 = [c1_0, c2_0, c3_0, c4_0]
+    sol2 = solve_ivp(system_C, (t_eval[0], t_eval[-1]), y0_2, t_eval=t_eval, method='BDF',
+                               rtol=1e-10, atol=1e-12, dense_output=True)
+
+    t = sol1.t
+    jz = sol1.y[0]
+    jj = sol1.y[1]
+    jz2 = sol1.y[2]
+    c1 = sol2.y[0]
+    c4 = sol2.y[3]
+    return t, jz/(Na/2), c1/(Na/4), c4/(Na/4)
 
 
 def compute_gav_matrix(A, Z):
@@ -528,4 +617,144 @@ def find_deltax(
     return delta_crit, chi2l, chi2-chi2_min, w0
 
 
+def find_delta_Cho(
+        R,
+        mnu,
+        p_init=1,
+        sampf=14.3e3,
+        B=0.1,
+        T2=1,
+        T1ratio=100,
+        Nshots=100,
+        seed=42,
+        d_init=1e5,
+        d_fin=1e20,
+        ndelta=100,
+        chi2_crit=2.7,
+        squid_noise_ratio=0.0,
+        ncode=1e9,
+        Bmax=12,
+        mode='m1',
+        sample='Xe',
+        squeeze=1,
+        opt=True,
+        sigma_spn=False,
+        verb=False
+    ):
+    '''
+    Chi-squared analysis on normalized ⟨J_z⟩, starting from
+    equatorial product state assuming T1 >> T2.
+    Returns upper limit on delta at specified confidence level.
+    '''
 
+    if sample == 'Xe':
+        ns = 1.35e22
+        A = 129
+        Z = 54
+        gy = 11.78e6
+    elif sample == 'He':
+        ns = 3e22
+        A = 3
+        Z = 2
+        gy = 32.43e6
+    elif sample == 'H':
+        ns = 3e22
+        A = 1
+        Z = 1
+        gy = 42.58e6
+    else:
+        raise ValueError("Sample not valid, choose 'Xe', 'He' or 'H'!")
+    eVHz = 1 / 6.58e-16 # eV/Hz conversion
+    w0 = 2 * np.pi * gy * B / eVHz # eV
+    pnu = 5.3e-4*2*np.pi*8065 # cm^-1
+    N = ns * 4 * np.pi / 3 * R**3 # number of spins
+    fsup = max(1, 4*(pnu * R)**2) # coherent suppression factor
+    w0_i = w0
+
+    # --- Time grid ---
+    tf = T2
+    ti = 1 / sampf
+    n_times = int((tf - ti) * sampf)
+    t_exp = np.linspace(ti, tf, n_times)
+
+    # --- Gamma ratios ---
+    gratio, gm, mm = compute_ratio(mnu, w0, A=A, Z=Z, mode=mode)
+    if verb:
+        print("At B=%.2f, I get w=%.3e"%(B, w0))
+        print("g+/g- = %.7f"%gratio)
+    # --- Optimal splitting and B-field limitations
+    if opt:
+        knu = 5.3e-4
+        m1 = mm[0]
+        w0_opt = knu/m1/R/(8065*2*np.pi)
+        if w0_opt < w0:
+            if verb:
+                print("Warning: splitting too large, adjusting to optimal value!")
+        w0 = w0_opt
+        B_opt = w0_opt * eVHz / (2*np.pi * gy)
+        if B_opt > Bmax:
+            if verb:
+                print("Optimal splitting needs too large B field, adjusting to Bmax!")
+            B = Bmax
+            w0 = 2 * np.pi * gy * B / eVHz
+        gratio, gm, mm = compute_ratio(mnu, w0, A=A, Z=Z, mode=mode)
+        if verb:
+            print("Passed w=%.3e, optimal w=%.3e, used w=%.3e"%(w0_i, w0_opt, w0))
+            print("g+/g- = %.7f"%gratio)
+    if verb:
+        print("Max rate is Gamma_-= %.3e Hz"%(gm*N**2/fsup))
+
+
+    # --- Memoized model prediction for normalized ⟨J_z⟩ ---
+    @lru_cache(maxsize=64)
+    def get_model_jz(delta):
+        Ncode = int(ncode)
+        tmin_code = min(t_exp) * N * gm/fsup * delta
+        tmax_code = max(t_exp) * N * gm/fsup * delta
+        t, jz, sz = solve(
+            Ncode,
+            gp_ratio=gratio,
+            gd_ratio=Ncode,
+            p_init=p_init,
+            ti=tmin_code,
+            tf=tmax_code,
+            ntimes=n_times,
+            tlin=True
+        )
+        jz_norm = jz / (Ncode / 2)
+        sz_norm = sz/ ( Ncode**(1/2) / 2)
+        return t, np.abs(jz_norm), sz_norm
+
+    delta_list = np.geomspace(d_init, d_fin, ndelta)
+    chi2_min = np.inf
+    delta_best = None
+    delta_crit = None
+    chi2l = []
+
+    for delta in delta_list:
+        _, jz_pred, sz_pred = get_model_jz(delta)
+        if sigma_spn:
+            sz_pred = np.ones_like(sz_pred)
+        d = jz_pred
+        norm_factor = N / 4.0
+        sigma = sz_pred / np.sqrt(norm_factor)
+        gamma_loc = 1.0/ T1ratio / T2
+        delta_t = np.abs(t_exp[:, np.newaxis] - t_exp[np.newaxis, :])
+        corr = np.exp(-gamma_loc * delta_t)
+        C = (sigma[:, np.newaxis] * sigma[np.newaxis, :] * corr) / squeeze ** 2
+        if squid_noise_ratio > 0.0:
+            noise_term = squid_noise_ratio / norm_factor
+            C += np.eye(n_times) * noise_term
+        chole = cho_factor(C)
+        x = cho_solve(chole, d)
+        chi2 = Nshots * np.dot(d, x)
+        chi2l.append(chi2)
+        if chi2 < chi2_min:
+            chi2_min = chi2
+            delta_best = delta
+        if delta_crit is None and chi2 - chi2_min > chi2_crit:
+            delta_crit = delta
+            break
+    if delta_crit is None:
+       print("No delta found within scan range for J_z")
+    return delta_crit, chi2l, chi2-chi2_min, w0
