@@ -8,16 +8,16 @@ from functools import lru_cache
 
 
 
-
-def solve(Na, gp_ratio=0.95, gd_ratio=0, gl_ratio=0, ti=1e-4, tf=1e4, ntimes=200, p_init=1, tlin=False):
+def solve(Na, gp_ratio=0.95, gd_ratio=0, gml_ratio=0, gpl_ratio=0, ti=1e-4, tf=1e4, ntimes=200, p_init=1, tlin=False, nu_off=False):
     '''
     '''
-    gm = 1
-    td = 1/(Na*gm)
-    gm = 1*td        # gamma-
-    gp = gp_ratio*td # gamma+
-    gd = gd_ratio*td # gamma_phi
-    gl = gl_ratio*td # gamma- local
+    gm  = 1
+    td  = 1/(Na*gm)
+    gm  = 1*td         # gamma-
+    gp  = gp_ratio*td  # gamma+
+    gd  = gd_ratio*td  # gamma_phi local
+    gml = gml_ratio*td # gamma- local
+    gpl = gpl_ratio*td # gamma+ local
 
     t_span = (ti, tf)
     t_eval = np.geomspace(*t_span, ntimes)
@@ -28,23 +28,18 @@ def solve(Na, gp_ratio=0.95, gd_ratio=0, gl_ratio=0, ti=1e-4, tf=1e4, ntimes=200
     jj0 = 0.5 * Na + 0.25 * Na**2 * p_init**2
     jjz0 = (Na / 4)
 
-    # def system(t, y):
-    #     jz, jj, jjz = y
-    #     djz_dt = -gm * (jj - jjz + jz) + gp * (jj - jjz - jz)
-    #     djj_dt = -gd * (jj - jjz - 0.5 * Na)
-    #     djjz_dt = (
-    #         gm * (jj + jz - 3 * jjz + 2 * jz * jjz - 2 * jz * jj) +
-    #         gp * (jj - jz - 3 * jjz - 2 * jz * jjz + 2 * jz * jj)
-    #     )
-    #     return [djz_dt, djj_dt, djjz_dt]
+    if nu_off:
+        gm = 0
+        gp = 0
 
     def system(t, y):
         jz, jj, jjz = y
-        djz_dt = -gm * (jj - jjz + jz) + gp * (jj - jjz - jz) - gl * (jz + 0.5 * Na) 
-        djj_dt = -gd * (jj - jjz - 0.5 * Na) - gl * (jj + (Na - 1) * jz + jjz - Na)
+
+        djz_dt = -gm * (jj - jjz + jz) + gp * (jj - jjz - jz) - gml * (jz + 0.5 * Na) + gpl * (-jz + 0.5 * Na) 
+        djj_dt = -gd * (jj - jjz - 0.5 * Na) - gml * (jj + (Na - 1) * jz + jjz - Na) - gpl * (jj - (Na - 1) * jz + jjz - Na)
         djjz_dt = gm * (jj + jz - 3 * jjz + 2 * jz * jjz - 2 * jz * jj) + \
                   gp * (jj - jz - 3 * jjz - 2 * jz * jjz + 2 * jz * jj) - \
-                  gl * ( (Na - 1) * jz + 2 * jjz - 0.5 * Na)
+                  gml * ( (Na - 1) * jz + 2 * jjz - 0.5 * Na) - gpl * ( -(Na - 1) * jz + 2 * jjz - 0.5 * Na)
         return [djz_dt, djj_dt, djjz_dt]
 
 
@@ -192,10 +187,12 @@ def solveC(Na, gp_ratio=0.95, gd_ratio=0, gl_ratio=0, ti=1e-4, tf=1e4, ntimes=10
     return t, jz/(Na/2), c1/(Na/4), c4/(Na/4)
 
 
-def compute_gav_matrix(A, Z):
+def compute_gav_matrix():
     '''
     '''
-    ga = np.array([-A / 2 + Z, -A / 2 + Z, -A / 2 + Z])
+    #ga = np.array([-A / 2 + Z, -A / 2 + Z, -A / 2 + Z])
+    ga_eff = 0.5
+    ga = np.array([ga_eff, ga_eff, ga_eff])
 
     # PMNS matrix parameters
     theta12 = np.deg2rad(33.82)
@@ -222,7 +219,7 @@ def compute_gav_matrix(A, Z):
 
 
 
-def compute_gammas(w_val, m_vals, A, Z, majorana=False):
+def compute_gammas(w_val, m_vals, majorana=False):
     eV_2_Hz = 1/6.58e-16
     mp.dps = 70  # High precision
 
@@ -231,7 +228,7 @@ def compute_gammas(w_val, m_vals, A, Z, majorana=False):
     w = mp.mpf(w_val)
     m = [mp.mpf(mval) for mval in m_vals]
 
-    gav = compute_gav_matrix(A, Z)
+    gav = compute_gav_matrix()
 
     def integrand_p(p, m1, m2, w):
         E1 = sqrt(p**2 + m1**2)
@@ -279,7 +276,7 @@ def compute_gammas(w_val, m_vals, A, Z, majorana=False):
     return float(gammap), float(gammam), float(gammap*eV_2_Hz), float(gammam*eV_2_Hz)
 
 
-def compute_ratio(m, w, A=129, Z=54, mode="sum", majorana=False):
+def compute_ratio(m, w, mode="sum", majorana=False):
     mnu = mp.mpf(m)
     w0 = mp.mpf(w)
 
@@ -313,7 +310,7 @@ def compute_ratio(m, w, A=129, Z=54, mode="sum", majorana=False):
     else:
         raise ValueError("mode must be 'sum' or 'm1'")
 
-    gp_eV, gm_eV, gp, gm = compute_gammas(w0, mm, A, Z, majorana=majorana)
+    gp_eV, gm_eV, gp, gm = compute_gammas(w0, mm, majorana=majorana)
     return gp / gm, gm, mm
 
 
@@ -348,18 +345,12 @@ def find_delta(
 
     if sample == 'Xe':
         ns = 1.35e22
-        A  = 129
-        Z  = 54
         gy = 11.78e6
     elif sample == 'He':
         ns = 3e22
-        A  = 3
-        Z  = 2
         gy = 32.43e6
     elif sample == 'H':
         ns = 3e22
-        A  = 1
-        Z  = 1
         gy = 42.58e6
     else:
         raise ValueError("Sample not valid, choose 'Xe', 'He' or 'H'!")
@@ -378,7 +369,7 @@ def find_delta(
     t_exp    = np.geomspace(ti, tf, n_times)
 
     # --- Gamma ratios ---
-    gratio, gm, mm = compute_ratio(mnu, w0, A=A, Z=Z, mode=mode)
+    gratio, gm, mm = compute_ratio(mnu, w0, mode=mode)
 
     if verb:
         print("At B=%.2f, I get w=%.3e"%(B, w0))
@@ -401,7 +392,7 @@ def find_delta(
             B = Bmax
             w0 = 2 * np.pi * gy * B / eVHz
 
-        gratio, gm, mm = compute_ratio(mnu, w0, A=A, Z=Z, mode=mode)
+        gratio, gm, mm = compute_ratio(mnu, w0, mode=mode)
         if verb:
             print("Passed w=%.3e, optimal w=%.3e,  used w=%.3e"%(w0_i, w0_opt, w0))
             print("g+/g- = %.7f"%gratio)
@@ -497,18 +488,12 @@ def find_deltax(
     '''
     if sample == 'Xe':
         ns = 1.35e22
-        A  = 129
-        Z  = 54
         gy = 11.78e6
     elif sample == 'He':
         ns = 3e22
-        A  = 3
-        Z  = 2
         gy = 32.43e6
     elif sample == 'H':
         ns = 3e22
-        A  = 1
-        Z  = 1
         gy = 42.58e6
     else:
         raise ValueError("Sample not valid, choose 'Xe', 'He' or 'H'!")
@@ -528,7 +513,7 @@ def find_deltax(
 
 
     # --- Gamma ratios ---
-    gratio, gm, mm = compute_ratio(mnu, w0, A=A, Z=Z, mode=mode)
+    gratio, gm, mm = compute_ratio(mnu, w0, mode=mode)
 
     if verb:
         print("At B=%.2f, I get w=%.3e"%(B, w0))
@@ -551,7 +536,7 @@ def find_deltax(
             B = Bmax
             w0 = 2 * np.pi * gy * B / eVHz
 
-        gratio, gm, mm = compute_ratio(mnu, w0, A=A, Z=Z, mode=mode)
+        gratio, gm, mm = compute_ratio(mnu, w0, mode=mode)
         if verb:
             print("Passed w=%.3e, optimal w=%.3e,  used w=%.3e"%(w0_i, w0_opt, w0))
             print("g+/g- = %.7f"%gratio)
@@ -621,10 +606,11 @@ def find_delta_Cho(
         R,
         mnu,
         p_init=1,
-        sampf=14.3e3,
+        sampf=1e3,
         B=0.1,
-        T2=1,
-        T1ratio=100,
+        T2=0.1,
+        T1ratio=10,
+        gpr_local=0.995,
         Nshots=100,
         seed=42,
         d_init=1e5,
@@ -632,7 +618,7 @@ def find_delta_Cho(
         ndelta=100,
         chi2_crit=2.7,
         squid_noise_ratio=0.0,
-        ncode=1e9,
+        ncode=1e3,
         Bmax=12,
         mode='m1',
         sample='Xe',
@@ -649,18 +635,12 @@ def find_delta_Cho(
 
     if sample == 'Xe':
         ns = 1.35e22
-        A = 129
-        Z = 54
         gy = 11.78e6
     elif sample == 'He':
         ns = 3e22
-        A = 3
-        Z = 2
         gy = 32.43e6
     elif sample == 'H':
         ns = 3e22
-        A = 1
-        Z = 1
         gy = 42.58e6
     else:
         raise ValueError("Sample not valid, choose 'Xe', 'He' or 'H'!")
@@ -678,7 +658,7 @@ def find_delta_Cho(
     t_exp = np.linspace(ti, tf, n_times)
 
     # --- Gamma ratios ---
-    gratio, gm, mm = compute_ratio(mnu, w0, A=A, Z=Z, mode=mode)
+    gratio, gm, mm = compute_ratio(mnu, w0, mode=mode)
     if verb:
         print("At B=%.2f, I get w=%.3e"%(B, w0))
         print("g+/g- = %.7f"%gratio)
@@ -697,7 +677,7 @@ def find_delta_Cho(
                 print("Optimal splitting needs too large B field, adjusting to Bmax!")
             B = Bmax
             w0 = 2 * np.pi * gy * B / eVHz
-        gratio, gm, mm = compute_ratio(mnu, w0, A=A, Z=Z, mode=mode)
+        gratio, gm, mm = compute_ratio(mnu, w0, mode=mode)
         if verb:
             print("Passed w=%.3e, optimal w=%.3e, used w=%.3e"%(w0_i, w0_opt, w0))
             print("g+/g- = %.7f"%gratio)
@@ -715,6 +695,8 @@ def find_delta_Cho(
             Ncode,
             gp_ratio=gratio,
             gd_ratio=Ncode,
+            gml_ratio=1/T1ratio*Ncode,
+            gpl_ratio=gpr_local/T1ratio*Ncode,
             p_init=p_init,
             ti=tmin_code,
             tf=tmax_code,
@@ -725,6 +707,27 @@ def find_delta_Cho(
         sz_norm = sz/ ( Ncode**(1/2) / 2)
         return t, np.abs(jz_norm), sz_norm
 
+    @lru_cache(maxsize=64)
+    def get_model_jz_bkg(delta):
+        Ncode = int(ncode)
+        tmin_code = min(t_exp) * N * gm/fsup * delta
+        tmax_code = max(t_exp) * N * gm/fsup * delta
+        t, jz, sz = solve(
+            Ncode,
+            gp_ratio=gratio,
+            gd_ratio=Ncode,
+            gml_ratio=1/T1ratio*Ncode,
+            gpl_ratio=gpr_local/T1ratio*Ncode,
+            p_init=p_init,
+            ti=tmin_code,
+            tf=tmax_code,
+            ntimes=n_times,
+            nu_off=True,
+            tlin=True
+        )
+        jz_norm = jz / (Ncode / 2)
+        return t, np.abs(jz_norm)
+
     delta_list = np.geomspace(d_init, d_fin, ndelta)
     chi2_min = np.inf
     delta_best = None
@@ -733,12 +736,13 @@ def find_delta_Cho(
 
     for delta in delta_list:
         _, jz_pred, sz_pred = get_model_jz(delta)
+        _, jz_bkg = get_model_jz_bkg(delta)
         if sigma_spn:
             sz_pred = np.ones_like(sz_pred)
-        d = jz_pred
+        d = jz_pred - jz_bkg
         norm_factor = N / 4.0
         sigma = sz_pred / np.sqrt(norm_factor)
-        gamma_loc = 1.0/ T1ratio / T2
+        gamma_loc = 2.0 / T1ratio / T2
         delta_t = np.abs(t_exp[:, np.newaxis] - t_exp[np.newaxis, :])
         corr = np.exp(-gamma_loc * delta_t)
         C = (sigma[:, np.newaxis] * sigma[np.newaxis, :] * corr) / squeeze ** 2
