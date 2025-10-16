@@ -4,6 +4,7 @@ data/
 script.py
 
 notebooks/Squeezing1.ipynb
+notebooks/Corr_moments.ipynb
 .ipynb_checkpoints/
 __pycache__/
 .DS_Store

@@ -114,28 +114,36 @@ def solvex(Na, gp_ratio=0.95, gd_ratio=0, ti=1e-4, tf=1e4, ntimes=200, p_init=1)
     return t, jx2, jz, jz2
 
 
-def solveC(Na, gp_ratio=0.95, gd_ratio=0, gl_ratio=0, ti=1e-4, tf=1e4, ntimes=101, p_init=1, tcheck=0):
+def solveC(Na, gp_ratio=0.95, gd_ratio=0, gml_ratio=0, gpl_ratio=0, ti=1e-4, tf=1e4, ntimes=101, p_init=1, tcheck=0, tlin=False, nu_off=False):
     '''
     '''
-    gm = 1
-    td = 1/(Na*gm)
-    gm = 1*td        # gamma- collective
-    gp = gp_ratio*td # gamma+ collective
-    gd = gd_ratio*td # gamma_phi local
-    gl = gl_ratio*td # gamma- local
-    gnet = gm-gp
+    gm  = 1
+    td  = 1/(Na*gm)
+    gm  = 1*td         # gamma-
+    gp  = gp_ratio*td  # gamma+
+    gd  = gd_ratio*td  # gamma_phi local
+    gml = gml_ratio*td # gamma- local
+    gpl = gpl_ratio*td # gamma+ local
     gtot = gm+gp
+    gnet = gp-gm
 
     t_span = (ti, tf)
     t_eval = np.geomspace(*t_span, ntimes)
+    
+    if tlin:
+        t_eval = np.linspace(*t_span, ntimes)
+
+    if nu_off:
+        gm = 0
+        gp = 0
 
     def system1(t, y):
         jz, jj, jjz = y
-        djz_dt = -gm * (jj - jjz + jz) + gp * (jj - jjz - jz) - gl * (jz + 0.5 * Na)
-        djj_dt = -gd * (jj - jjz - 0.5 * Na) - gl * (jj + (Na - 1) * jz + jjz - Na)
+        djz_dt = -gm * (jj - jjz + jz) + gp * (jj - jjz - jz) - gml * (jz + 0.5 * Na) + gpl * (-jz + 0.5 * Na) 
+        djj_dt = -gd * (jj - jjz - 0.5 * Na) - gml * (jj + (Na - 1) * jz + jjz - Na) - gpl * (jj - (Na - 1) * jz + jjz - Na)
         djjz_dt = gm * (jj + jz - 3 * jjz + 2 * jz * jjz - 2 * jz * jj) + \
                   gp * (jj - jz - 3 * jjz - 2 * jz * jjz + 2 * jz * jj) - \
-                  gl * ( (Na - 1) * jz + 2 * jjz - 0.5 * Na)
+                  gml * ( (Na - 1) * jz + 2 * jjz - 0.5 * Na) - gpl * ( -(Na - 1) * jz + 2 * jjz - 0.5 * Na)
         return [djz_dt, djj_dt, djjz_dt]
 
 
@@ -144,12 +152,12 @@ def solveC(Na, gp_ratio=0.95, gd_ratio=0, gl_ratio=0, ti=1e-4, tf=1e4, ntimes=10
         jz  = tcheck
         j2z = j2z_t(t)
         j2  = j2_t(t)
-        dc1_dt = gp * (c2 - c3 - c1) - gm * (c2 - c3 + c1) - gl * (c1 + 0.5 * Na * jz)
-        dc2_dt = -gl * (c2 + (Na - 1) * c1 + c3 - Na * jz) - gd * (c2 - c3 - 0.5 * Na)
+        dc1_dt = gp * (c2 - c3 - c1) - gm * (c2 - c3 + c1) - gml * (c1 + 0.5 * Na * jz) + gpl * (-c1 + 0.5 * Na * jz)
+        dc2_dt = -gml * (c2 + (Na - 1) * c1 + c3 - Na * jz) -gpl * (c2 - (Na - 1) * c1 + c3 - Na * jz) - gd * (c2 - c3 - 0.5 * Na)
         dc3_dt = gp * (c2 - c1 - 3 * c3 - 2 * c3 * jz + 2 * c2 * jz) + \
                  gm * (c2 + c1 - 3 * c3 + 2 * c3 * jz - 2 * c2 * jz) - \
-                 gl * ((Na - 1) * c1 + 2 * c3 - 0.5 * Na * jz)
-        dc4_dt = -gnet * (c2-c3) - (gtot + gl) * c4
+                 gml * ((Na - 1) * c1 + 2 * c3 - 0.5 * Na * jz) - gpl * (-(Na - 1) * c1 + 2 * c3 - 0.5 * Na * jz)
+        dc4_dt = -gnet * (c2-c3) - (gtot + gml + gpl) * c4
 
         return [dc1_dt, dc2_dt, dc3_dt, dc4_dt]
 
@@ -684,19 +692,21 @@ def find_delta_Cho(
     if verb:
         print("Max rate is Gamma_-= %.3e Hz"%(gm*N**2/fsup))
 
+    gloc = 1/(2*(2*T1ratio-1))
 
     # --- Memoized model prediction for normalized ⟨J_z⟩ ---
     @lru_cache(maxsize=64)
     def get_model_jz(delta):
+        
         Ncode = int(ncode)
         tmin_code = min(t_exp) * N * gm/fsup * delta
         tmax_code = max(t_exp) * N * gm/fsup * delta
         t, jz, sz = solve(
             Ncode,
             gp_ratio=gratio,
-            gd_ratio=Ncode,
-            gml_ratio=1/T1ratio*Ncode,
-            gpl_ratio=gpr_local/T1ratio*Ncode,
+            gd_ratio=Ncode*fsup,
+            gml_ratio=gloc*Ncode*fsup,
+            gpl_ratio=gpr_local*gloc*Ncode*fsup,
             p_init=p_init,
             ti=tmin_code,
             tf=tmax_code,
@@ -715,9 +725,9 @@ def find_delta_Cho(
         t, jz, sz = solve(
             Ncode,
             gp_ratio=gratio,
-            gd_ratio=Ncode,
-            gml_ratio=1/T1ratio*Ncode,
-            gpl_ratio=gpr_local/T1ratio*Ncode,
+            gd_ratio=Ncode*fsup,
+            gml_ratio=gloc*Ncode*fsup,
+            gpl_ratio=gpr_local*gloc*Ncode*fsup,
             p_init=p_init,
             ti=tmin_code,
             tf=tmax_code,
