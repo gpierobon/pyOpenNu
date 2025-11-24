@@ -3,6 +3,9 @@ data/
 
 script.py
 
+notebooks/bloch_*/
+
+notebooks/Viss.ipynb
 notebooks/Squeezing1.ipynb
 notebooks/Corr_moments.ipynb
 .ipynb_checkpoints/
